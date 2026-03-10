@@ -96,6 +96,11 @@ To convert a `.pth` model to `.onnx`, provide the path to the model file:
 python convert_to_onnx.py path/to/model.pth
 ```
 
+For example:
+```
+python convert_to_onnx.py ./models/best_model.pth
+``` 
+
 This will create a `model.onnx` file in the same directory.
 
 To predict image orientation using the ONNX model:
@@ -220,3 +225,24 @@ In TensorBoard, you can track:
 - **Accuracy:** `Accuracy/train` and `Accuracy/validation`
 - **Loss:** `Loss/train` and `Loss/validation`
 - **Learning Rate:** `Hyperparameters/learning_rate` to see how it changes over epochs.
+
+## Quantization
+
+Slim model first:
+```
+python -m onnxsim ./models/best_model.onnx ./models/best_model_slim.onnx
+```
+
+To descrease model size and be used on the edge devices use
+```
+python quantize_to_onnx.py ./models/best_model_slim.onnx
+```  
+
+## Quantized Image Prediction
+To predict the orientation of an image or a directory of images, there's a `predict.py` script.
+
+- **Predict a single image:**
+
+  ```bash
+  python predict_onnx_int8.py --input_path /path/to/image.jpg --model_path ./models/best_model_slim_quant_int8.onnx
+  ```

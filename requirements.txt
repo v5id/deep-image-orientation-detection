@@ -7,3 +7,5 @@ tqdm
 tensorboard
 onnx
 onnxruntime
+onnxscript
+onnxsim
