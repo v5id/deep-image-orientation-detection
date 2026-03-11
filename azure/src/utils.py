@@ -68,58 +68,84 @@ def get_data_transforms() -> dict:
 
 def load_image_safely(path: str) -> Image.Image:
     """
-    Loads an image, respects EXIF orientation, and safely converts it to a
-    3-channel RGB format. It handles palletized images and images with
-    transparency by compositing them onto a white background. This is the
-    most robust way to prevent processing errors.
+    Ultra-robust image loader that handles all image modes and potential errors.
+    Falls back to creating a blank image if all else fails.
     """
-    # 1. Open the image
-    img = Image.open(path)
-
-    # 2. Respect the EXIF orientation tag before any other processing.
-    img = ImageOps.exif_transpose(img)
-
-    # 3. Handle different image modes appropriately
-    if img.mode == "RGB":
-        # Already RGB, just return
-        return img
-    
-    elif img.mode == "L":
-        # Grayscale - convert directly to RGB
-        return img.convert("RGB")
-    
-    elif img.mode == "RGBA":
-        # RGBA - composite onto white background using alpha channel as mask
-        background = Image.new("RGB", img.size, (255, 255, 255))
-        # Split to get alpha channel, use it as mask
-        alpha = img.split()[3]
-        background.paste(img.convert("RGB"), mask=alpha)
-        return background
-    
-    elif img.mode == "LA":
-        # Grayscale with alpha - similar to RGBA but with 2 channels
-        background = Image.new("RGB", img.size, (255, 255, 255))
-        # Convert to RGBA first to standardize
-        rgba_img = img.convert("RGBA")
-        alpha = rgba_img.split()[3]
-        background.paste(rgba_img.convert("RGB"), mask=alpha)
-        return background
-    
-    elif img.mode == "P":
-        # Palletized - could have transparency
-        # Check if the palette has transparency info
-        if "transparency" in img.info:
-            # Convert to RGBA to preserve transparency
-            rgba_img = img.convert("RGBA")
-            background = Image.new("RGB", rgba_img.size, (255, 255, 255))
-            alpha = rgba_img.split()[3]
-            background.paste(rgba_img.convert("RGB"), mask=alpha)
-            return background
+    try:
+        # 1. Open the image
+        img = Image.open(path)
+        
+        # 2. Respect EXIF orientation
+        img = ImageOps.exif_transpose(img)
+        
+        # 3. Handle different modes safely
+        if img.mode == 'RGB':
+            return img
+        
+        elif img.mode == 'RGBA':
+            # Create white background and composite
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            # Split to get alpha channel safely
+            if len(img.split()) == 4:
+                alpha = img.split()[3]
+                # Convert to RGB before pasting
+                rgb_img = img.convert('RGB')
+                background.paste(rgb_img, mask=alpha)
+                return background
+            else:
+                return img.convert('RGB')
+        
+        elif img.mode == 'LA' or img.mode == 'PA':
+            # Convert to RGBA first, then handle
+            rgba_img = img.convert('RGBA')
+            background = Image.new('RGB', rgba_img.size, (255, 255, 255))
+            if len(rgba_img.split()) == 4:
+                alpha = rgba_img.split()[3]
+                rgb_img = rgba_img.convert('RGB')
+                background.paste(rgb_img, mask=alpha)
+                return background
+            else:
+                return rgba_img.convert('RGB')
+        
+        elif img.mode == 'P':
+            # Palletized image - check for transparency
+            if img.info.get('transparency', None) is not None:
+                # Has transparency
+                rgba_img = img.convert('RGBA')
+                background = Image.new('RGB', rgba_img.size, (255, 255, 255))
+                if len(rgba_img.split()) == 4:
+                    alpha = rgba_img.split()[3]
+                    rgb_img = rgba_img.convert('RGB')
+                    background.paste(rgb_img, mask=alpha)
+                    return background
+                else:
+                    return rgba_img.convert('RGB')
+            else:
+                # No transparency, just convert
+                return img.convert('RGB')
+        
+        elif img.mode == 'L':
+            # Grayscale - direct conversion
+            return img.convert('RGB')
+        
+        elif img.mode == 'CMYK':
+            # CMYK - convert directly (loses color profile but works)
+            return img.convert('RGB')
+        
+        elif img.mode == 'YCbCr':
+            # YCbCr - convert directly
+            return img.convert('RGB')
+        
         else:
-            # No transparency, just convert to RGB
-            return img.convert("RGB")
+            # Unknown mode - try direct conversion
+            try:
+                return img.convert('RGB')
+            except:
+                # If all else fails, create a blank image
+                logging.warning(f"Could not convert {path} to RGB. Creating blank image.")
+                return Image.new('RGB', (224, 224), (128, 128, 128))
     
-    else:
-        # For any other mode (CMYK, YCbCr, etc.), just convert to RGB
-        # This might lose transparency, but these modes rarely have it
-        return img.convert("RGB")
+    except Exception as e:
+        logging.error(f"Error loading image {path}: {e}")
+        # Return a blank image as fallback
+        return Image.new('RGB', (224, 224), (128, 128, 128))
