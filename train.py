@@ -1,3 +1,7 @@
+import os
+import sys
+import multiprocessing
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -327,6 +331,16 @@ def train(args):
 
 
 if __name__ == "__main__":
+
+    multiprocessing.set_start_method('spawn', force=True)
+
+    # Memory optimization for 32GB RAM + 4GB GPU
+    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+    os.environ["OMP_NUM_THREADS"] = str(multiprocessing.cpu_count() // 2)  # Use half cores
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,expandable_segments:True"
+
     parser = argparse.ArgumentParser(
         description="Train an image orientation detection model."
     )
