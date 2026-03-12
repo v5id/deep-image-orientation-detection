@@ -15,6 +15,32 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN pip install azureml-mlflow onnx onnxruntime pillow numpy faiss-cpu azure-ai-ml azure-identity
-RUN pip install torch torchvision albumentations tqdm tensorboard onnxscript onnxsim
+RUN pip install azureml-mlflow onnx onnxruntime pillow "numpy<2" faiss-cpu azure-ai-ml azure-identity
+RUN pip install torchvision==0.18.0 albumentations tqdm tensorboard onnxscript onnxsim
 ```
+
+
+```
+python export_onnx.py --model_path ./models/orientation_model_best.pth --out_path ./models/orientation_model_best.onnx
+```
+
+## Quantization
+
+Slim model first:
+```
+python -m onnxsim ./models/orientation_model_best.onnx ./models/best_model_slim.onnx
+```
+
+To descrease model size and be used on the edge devices use
+```
+python .\quantize_to_onnx.py .\models\best_model_slim.onnx --calib_dir .\data\upright_images  --op_types MatMul,Gemm
+```  
+
+## Quantized Image Prediction
+To predict the orientation of an image or a directory of images, there's a `predict.py` script.
+
+- **Predict a single image:**
+
+  ```bash
+  python predict_onnx_int8.py --input_path /path/to/image.jpg --model_path ./models/best_model_slim_quant_int8.onnx
+  ```
