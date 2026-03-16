@@ -1,99 +1,83 @@
-const IMAGE_SIZE = 224; // your model input size
+const IMAGE_SIZE = 224;
+const MODEL_URL = "orientation_model_best.onnx"; // FP32 (straight) ONNX
 
 let session;
 
 async function loadModel() {
-    session = await ort.InferenceSession.create("best_model_slim_quant_int8.onnx", {
-        executionProviders: ['wasm']
-    });
-
-    console.log("Model loaded");
+  session = await ort.InferenceSession.create(MODEL_URL, {
+    executionProviders: ["wasm"],
+  });
+  console.log("Model loaded:", MODEL_URL);
 }
 
-loadModel();
+function letterboxToSquareCanvas(img, size, fill = 255) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
 
-document.getElementById("imageInput").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    const img = new Image();
-    img.src = URL.createObjectURL(file);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = `rgb(${fill},${fill},${fill})`;
+  ctx.fillRect(0, 0, size, size);
 
-    img.onload = async () => {
-        const predictedClass = await predict(img);
-        displayCorrectedImage(img, predictedClass);
-    };
-});
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
 
-async function predict(img) {
-    const inputTensor = preprocessImage(img);
+  const scale = Math.min(size / w, size / h);
+  const nw = Math.max(1, Math.round(w * scale));
+  const nh = Math.max(1, Math.round(h * scale));
 
-    const feeds = {};
-    feeds[session.inputNames[0]] = inputTensor;
+  const left = Math.floor((size - nw) / 2);
+  const top = Math.floor((size - nh) / 2);
 
-    const results = await session.run(feeds);
-    const output = results[session.outputNames[0]].data;
-
-    return argmax(output);
+  ctx.drawImage(img, left, top, nw, nh);
+  return canvas;
 }
 
 function preprocessImage(img) {
-    const resizeSize = IMAGE_SIZE + 32; // 416
+  const canvas = letterboxToSquareCanvas(img, IMAGE_SIZE, 255);
+  const ctx = canvas.getContext("2d");
+  const imageData = ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  const data = imageData.data;
 
-    const resizeCanvas = document.createElement("canvas");
-    resizeCanvas.width = resizeSize;
-    resizeCanvas.height = resizeSize;
+  const floatData = new Float32Array(1 * 3 * IMAGE_SIZE * IMAGE_SIZE);
+  const mean = [0.485, 0.456, 0.406];
+  const std = [0.229, 0.224, 0.225];
 
-    const resizeCtx = resizeCanvas.getContext("2d");
-    resizeCtx.drawImage(img, 0, 0, resizeSize, resizeSize);
+  for (let i = 0; i < IMAGE_SIZE * IMAGE_SIZE; i++) {
+    const r = data[i * 4] / 255.0;
+    const g = data[i * 4 + 1] / 255.0;
+    const b = data[i * 4 + 2] / 255.0;
 
-    const cropCanvas = document.createElement("canvas");
-    cropCanvas.width = IMAGE_SIZE;
-    cropCanvas.height = IMAGE_SIZE;
+    floatData[i] = (r - mean[0]) / std[0];
+    floatData[i + IMAGE_SIZE * IMAGE_SIZE] = (g - mean[1]) / std[1];
+    floatData[i + 2 * IMAGE_SIZE * IMAGE_SIZE] = (b - mean[2]) / std[2];
+  }
 
-    const cropCtx = cropCanvas.getContext("2d");
+  return new ort.Tensor("float32", floatData, [1, 3, IMAGE_SIZE, IMAGE_SIZE]);
+}
 
-    const start = (resizeSize - IMAGE_SIZE) / 2;
+async function predict(img) {
+  if (!session) await loadModel();
 
-    cropCtx.drawImage(
-        resizeCanvas,
-        start, start,
-        IMAGE_SIZE, IMAGE_SIZE,
-        0, 0,
-        IMAGE_SIZE, IMAGE_SIZE
-    );
+  const inputTensor = preprocessImage(img);
+  const feeds = { [session.inputNames[0]]: inputTensor };
 
-    const imageData = cropCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-    const data = imageData.data;
+  const results = await session.run(feeds);
+  const output = results[session.outputNames[0]].data;
 
-    const floatData = new Float32Array(1 * 3 * IMAGE_SIZE * IMAGE_SIZE);
-
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
-
-    for (let i = 0; i < IMAGE_SIZE * IMAGE_SIZE; i++) {
-        const r = data[i * 4] / 255.0;
-        const g = data[i * 4 + 1] / 255.0;
-        const b = data[i * 4 + 2] / 255.0;
-
-        floatData[i] = (r - mean[0]) / std[0];
-        floatData[i + IMAGE_SIZE * IMAGE_SIZE] = (g - mean[1]) / std[1];
-        floatData[i + 2 * IMAGE_SIZE * IMAGE_SIZE] = (b - mean[2]) / std[2];
-    }
-
-    return new ort.Tensor("float32", floatData, [1, 3, IMAGE_SIZE, IMAGE_SIZE]);
+  return argmax(output);
 }
 
 function argmax(arr) {
-    return arr.reduce((maxIdx, val, idx, array) =>
-        val > array[maxIdx] ? idx : maxIdx, 0);
+  return arr.reduce((maxIdx, val, idx, array) => (val > array[maxIdx] ? idx : maxIdx), 0);
 }
 
 function displayCorrectedImage(img, orientationClass) {
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d");
 
-  // rotate-to-upright mapping for your label scheme
   const rotateToUprightDeg = [0, -90, 180, 90][orientationClass] ?? 0;
-  const radians = rotateToUprightDeg * Math.PI / 180;
+  const radians = (rotateToUprightDeg * Math.PI) / 180;
 
   const swapWH = Math.abs(rotateToUprightDeg) === 90;
   canvas.width = swapWH ? img.height : img.width;
@@ -105,3 +89,18 @@ function displayCorrectedImage(img, orientationClass) {
   ctx.rotate(radians);
   ctx.drawImage(img, -img.width / 2, -img.height / 2);
 }
+
+loadModel();
+
+document.getElementById("imageInput").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+
+  img.onload = async () => {
+    const predictedClass = await predict(img);
+    displayCorrectedImage(img, predictedClass);
+  };
+});
