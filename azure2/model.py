@@ -4,11 +4,11 @@ from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 
 class OrientationNet(nn.Module):
 
-    def __init__(self):
+    def __init__(self, weights=MobileNet_V3_Small_Weights.DEFAULT):
         super().__init__()
 
         self.model = mobilenet_v3_small(
-            weights=MobileNet_V3_Small_Weights.DEFAULT
+            weights=weights
         )
 
         # freeze backbone
